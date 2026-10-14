@@ -252,13 +252,17 @@ function show(id) {
 }
 function fail(msg) { $("v-error").textContent = msg; show("v-error"); }
 
-async function api(action, payload) {
+async function api(action, payload, retries = 2) {
   const res = await fetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action, initData: INIT_DATA, ...payload }),
   });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 429 && data.retryAfterMs && retries > 0) {
+    await new Promise((r) => setTimeout(r, data.retryAfterMs + 200));
+    return api(action, payload, retries - 1);
+  }
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
 }
