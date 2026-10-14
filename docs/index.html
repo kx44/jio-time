@@ -201,6 +201,21 @@
 const API_URL = "https://lldebkoxvxagdkunpqnx.supabase.co/functions/v1/sched-api";
 
 const tg = window.Telegram?.WebApp;
+
+// Signed launch data. Normally tg.initData; some clients only put it in the URL hash
+// (or the SDK's sessionStorage copy after a reload), so fall back to those.
+function readInitData() {
+  if (tg?.initData) return tg.initData;
+  const fromHash = new URLSearchParams(location.hash.slice(1)).get("tgWebAppData");
+  if (fromHash) return fromHash;
+  try {
+    const saved = JSON.parse(sessionStorage.getItem("__telegram__initParams") || "null");
+    if (saved?.tgWebAppData) return saved.tgWebAppData;
+  } catch { /* storage unavailable */ }
+  return "";
+}
+const INIT_DATA = readInitData();
+const INIT = new URLSearchParams(INIT_DATA);
 const $ = (id) => document.getElementById(id);
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MO = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -214,7 +229,7 @@ async function api(action, payload) {
   const res = await fetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, initData: tg?.initData ?? "", ...payload }),
+    body: JSON.stringify({ action, initData: INIT_DATA, ...payload }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
@@ -612,13 +627,16 @@ async function refresh() {
 // boot
 // =====================================================================
 (function boot() {
-  if (!tg || !tg.initData) {
-    return fail("Open this from Telegram: type the bot's @username in any chat.");
+  if (!INIT_DATA) {
+    const hashKeys = [...new URLSearchParams(location.hash.slice(1)).keys()].join(", ") || "none";
+    return fail("Telegram didn't pass launch data to this page. Open it from the bot's inline button or a shared event link. " +
+      `Debug: sdk=${tg ? "yes" : "no"} · platform=${tg?.platform ?? "?"} · version=${tg?.version ?? "?"} · hash keys: ${hashKeys}`);
   }
-  tg.ready();
-  tg.expand();
-  tg.disableVerticalSwipes?.();
-  const startParam = tg.initDataUnsafe?.start_param;
+  tg?.ready();
+  tg?.expand();
+  tg?.disableVerticalSwipes?.();
+  const startParam = tg.initDataUnsafe?.start_param || INIT.get("start_param")
+    || new URLSearchParams(location.search).get("tgWebAppStartParam");
   if (startParam && /^[A-Za-z0-9]{10}$/.test(startParam)) initEvent(startParam);
   else initCreate();
 })();
