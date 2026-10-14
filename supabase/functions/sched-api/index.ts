@@ -1,7 +1,7 @@
 // sched-api: create / get / save for the scheduler Mini App.
 // Every request carries Telegram initData, validated with the bot token.
 import {
-  db, displayName, loadEvent, openButton, summaryHtml, tg, validateInitData,
+  db, displayName, getBotUsername, loadEvent, openButton, summaryHtml, tg, validateInitData,
 } from "../_shared/sched.ts";
 
 const CORS = {
@@ -91,12 +91,12 @@ async function create(user: { id: number } | null, b: Record<string, any>) {
     id, title, dates, start_hour: startHour, end_hour: endHour, slot_minutes: 30, tz, creator_id: user?.id ?? null,
   });
   if (error) throw error;
-  return json({ id });
+  return json({ id, botUsername: await getBotUsername() });
 }
 
 async function get(user: { id: number }, b: Record<string, any>) {
   const loaded = await loadEvent(String(b.id ?? ""));
-  if (!loaded) return json({ error: "Event not found" }, 404);
+  if (!loaded) return json({ error: "This event has ended or was removed." }, 404);
   const { ev, responses } = loaded;
   return json({
     event: {
@@ -111,7 +111,7 @@ async function get(user: { id: number }, b: Record<string, any>) {
 async function save(user: Parameters<typeof displayName>[0], b: Record<string, any>) {
   const id = String(b.id ?? "");
   const { data: ev } = await db.from("sched_events").select("*").eq("id", id).maybeSingle();
-  if (!ev) return json({ error: "Event not found" }, 404);
+  if (!ev) return json({ error: "This event has ended or was removed." }, 404);
 
   const total = ((ev.end_hour - ev.start_hour) * 60 / ev.slot_minutes) * ev.dates.length;
   const slots = [...new Set((Array.isArray(b.slots) ? b.slots : []).map(Number))]
