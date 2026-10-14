@@ -19,7 +19,7 @@ export type SchedEvent = {
   end_hour: number;
   slot_minutes: number;
   tz: string;
-  creator_id: number;
+  creator_id: number | null;
   inline_message_ids: string[];
 };
 

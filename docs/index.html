@@ -627,7 +627,11 @@ async function refresh() {
 // boot
 // =====================================================================
 (function boot() {
-  if (!INIT_DATA) {
+  const startParam = tg?.initDataUnsafe?.start_param || INIT.get("start_param")
+    || new URLSearchParams(location.search).get("tgWebAppStartParam");
+  // Inline-launched apps (the "Create a new event" bar) get no initData on Telegram Desktop;
+  // creating works without it, but the availability grid needs a verified user.
+  if (!INIT_DATA && (!tg || startParam)) {
     const hashKeys = [...new URLSearchParams(location.hash.slice(1)).keys()].join(", ") || "none";
     return fail("Telegram didn't pass launch data to this page. Open it from the bot's inline button or a shared event link. " +
       `Debug: sdk=${tg ? "yes" : "no"} · platform=${tg?.platform ?? "?"} · version=${tg?.version ?? "?"} · hash keys: ${hashKeys}`);
@@ -635,8 +639,6 @@ async function refresh() {
   tg?.ready();
   tg?.expand();
   tg?.disableVerticalSwipes?.();
-  const startParam = tg.initDataUnsafe?.start_param || INIT.get("start_param")
-    || new URLSearchParams(location.search).get("tgWebAppStartParam");
   if (startParam && /^[A-Za-z0-9]{10}$/.test(startParam)) initEvent(startParam);
   else initCreate();
 })();

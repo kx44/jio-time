@@ -40,11 +40,12 @@ async function onInlineQuery(q: { id: string; query: string }) {
   });
 }
 
-async function onChosenInlineResult(r: { result_id: string; inline_message_id?: string }) {
+async function onChosenInlineResult(r: { result_id: string; inline_message_id?: string; from: { id: number } }) {
   if (!r.inline_message_id || !EVENT_ID.test(r.result_id)) return;
   const { error } = await db.rpc("sched_add_inline_message", {
     p_event_id: r.result_id,
     p_inline_message_id: r.inline_message_id,
+    p_user_id: r.from.id,
   });
   if (error) console.error("store inline_message_id", error);
 }

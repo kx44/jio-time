@@ -42,9 +42,14 @@ Deno.serve(async (req) => {
   }
 
   const user = await validateInitData(body.initData);
-  if (!user) return json({ error: "invalid initData" }, 401);
+  // Telegram Desktop gives inline-launched Mini Apps no initData, so create may be
+  // anonymous; the creator is filled in from chosen_inline_result. get/save need a user.
+  if (!user && !(body.action === "create" && !body.initData)) {
+    return json({ error: "invalid initData" }, 401);
+  }
 
   try {
+    if (!user) return await create(null, body);
     switch (body.action) {
       case "create": return await create(user, body);
       case "get": return await get(user, body);
@@ -57,7 +62,9 @@ Deno.serve(async (req) => {
   }
 });
 
-async function create(user: { id: number }, b: Record<string, any>) {
+const ANON_CREATES_PER_10_MIN = 30;
+
+async function create(user: { id: number } | null, b: Record<string, any>) {
   const title = String(b.title ?? "").trim().slice(0, 120);
   const dates = [...new Set((Array.isArray(b.dates) ? b.dates : []).map(String))]
     .filter((d) => ISO_DATE.test(d) && !isNaN(Date.parse(d))).sort();
@@ -72,9 +79,16 @@ async function create(user: { id: number }, b: Record<string, any>) {
   }
   if (!validTz(tz)) return json({ error: "Unknown timezone" }, 400);
 
+  if (!user) {
+    const since = new Date(Date.now() - 10 * 60_000).toISOString();
+    const { count } = await db.from("sched_events").select("id", { count: "exact", head: true })
+      .is("creator_id", null).gte("created_at", since);
+    if ((count ?? 0) >= ANON_CREATES_PER_10_MIN) return json({ error: "Too many new events, try again shortly" }, 429);
+  }
+
   const id = newId();
   const { error } = await db.from("sched_events").insert({
-    id, title, dates, start_hour: startHour, end_hour: endHour, slot_minutes: 30, tz, creator_id: user.id,
+    id, title, dates, start_hour: startHour, end_hour: endHour, slot_minutes: 30, tz, creator_id: user?.id ?? null,
   });
   if (error) throw error;
   return json({ id });
