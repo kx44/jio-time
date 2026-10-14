@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Jio Time</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --bg2: var(--tg-theme-secondary-bg-color, #f2f3f5);
+    --text: var(--tg-theme-text-color, #111111);
+    --hint: var(--tg-theme-hint-color, #8a8f98);
+    --link: var(--tg-theme-link-color, #2481cc);
+    --btn: var(--tg-theme-button-color, #2481cc);
+    --btn-text: var(--tg-theme-button-text-color, #ffffff);
+    --danger: var(--tg-theme-destructive-text-color, #e53935);
+    --line: color-mix(in srgb, var(--hint) 28%, transparent);
+    --line-strong: color-mix(in srgb, var(--hint) 55%, transparent);
+    --free: 38, 166, 91; /* rgb for availability */
+    --cell-h: 20px;
+    --col-w: 52px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
+    -webkit-tap-highlight-color: transparent;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .hint { color: var(--hint); font-size: 13px; }
+  .hidden { display: none !important; }
+  .center { text-align: center; padding: 48px 8px; color: var(--hint); }
+
+  /* ---------- create form ---------- */
+  label.field { display: block; margin: 16px 0 6px; font-size: 13px; color: var(--hint); text-transform: uppercase; letter-spacing: .03em; }
+  input[type=text], input[type=date], select {
+    width: 100%; font: inherit; color: var(--text); background: var(--bg2);
+    border: 1px solid transparent; border-radius: 10px; padding: 10px 12px; font-size: 16px;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--btn); }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; min-width: 0; }
+  .seg { display: flex; background: var(--bg2); border-radius: 10px; padding: 3px; }
+  .seg button {
+    flex: 1; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 14px;
+    padding: 7px 0; border-radius: 8px; cursor: pointer;
+  }
+  .seg button.on { background: var(--bg); box-shadow: 0 1px 3px rgba(0,0,0,.12); font-weight: 600; }
+  .primary {
+    width: 100%; border: 0; border-radius: 12px; padding: 14px; margin-top: 24px;
+    background: var(--btn); color: var(--btn-text); font: inherit; font-weight: 600; font-size: 16px; cursor: pointer;
+  }
+  .primary:disabled { opacity: .5; }
+  .error { color: var(--danger); font-size: 14px; margin-top: 10px; min-height: 1em; }
+
+  .cal { background: var(--bg2); border-radius: 12px; padding: 10px; user-select: none; }
+  .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-weight: 600; }
+  .cal-head button { border: 0; background: none; color: var(--link); font-size: 22px; padding: 0 10px; cursor: pointer; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center; }
+  .cal-grid .dow { font-size: 11px; color: var(--hint); padding: 2px 0; }
+  .cal-grid button {
+    border: 0; background: transparent; color: var(--text); font: inherit; font-size: 14px;
+    aspect-ratio: 1; border-radius: 50%; cursor: pointer;
+  }
+  .cal-grid button.past { color: var(--hint); opacity: .5; }
+  .cal-grid button.on { background: var(--btn); color: var(--btn-text); font-weight: 600; }
+
+  /* ---------- event view ---------- */
+  .tabs { margin: 14px 0 10px; }
+  .panes { display: flex; gap: 16px; align-items: flex-start; }
+  .pane { flex: 1; min-width: 0; }
+  .pane h2 { font-size: 14px; margin: 0 0 6px; font-weight: 600; }
+  @media (max-width: 719px) {
+    body[data-tab=mine] #pane-group, body[data-tab=group] #pane-mine { display: none; }
+    .pane h2 { display: none; }
+  }
+  @media (min-width: 720px) { .tabs { display: none; } }
+
+  .scroller { overflow-x: auto; overscroll-behavior-x: contain; border-radius: 10px; }
+  .grid { display: grid; user-select: none; -webkit-user-select: none; width: max-content; }
+  .grid .corner, .grid .dayhead {
+    position: sticky; top: 0; background: var(--bg); z-index: 1;
+    font-size: 11px; text-align: center; line-height: 1.2; padding: 2px 0 4px; color: var(--hint);
+  }
+  .grid .dayhead b { display: block; color: var(--text); font-size: 12px; }
+  .grid .time {
+    font-size: 10px; color: var(--hint); text-align: right; padding-right: 6px;
+    height: var(--cell-h); line-height: 1; transform: translateY(-5px); white-space: nowrap;
+  }
+  .cell {
+    width: var(--col-w); height: var(--cell-h);
+    border-left: 1px solid var(--line); border-top: 1px dotted var(--line);
+    background: var(--bg2);
+  }
+  .cell.hour { border-top: 1px solid var(--line-strong); }
+  .cell.lastcol { border-right: 1px solid var(--line); }
+  .cell.lastrow { border-bottom: 1px solid var(--line); }
+  #grid-mine .cell { touch-action: none; cursor: pointer; }
+  #grid-mine .cell.on { background: rgb(var(--free)); }
+  #grid-group .cell { cursor: pointer; }
+  #grid-group .cell.sel { outline: 2px solid var(--text); outline-offset: -2px; }
+
+  .status { font-size: 13px; color: var(--hint); margin-top: 8px; min-height: 18px; }
+  .status.err { color: var(--danger); }
+
+  .best {
+    background: color-mix(in srgb, rgb(var(--free)) 14%, var(--bg)); border-radius: 10px;
+    padding: 8px 12px; margin-bottom: 8px; font-size: 14px;
+  }
+  .legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--hint); margin: 6px 0; }
+  .legend .ramp { height: 10px; flex: 0 0 120px; border-radius: 3px;
+    background: linear-gradient(90deg, var(--bg2), rgb(var(--free))); }
+  .detail { background: var(--bg2); border-radius: 10px; padding: 10px 12px; margin-top: 10px; font-size: 14px; }
+  .detail .who { margin-top: 4px; }
+  .detail .no { color: var(--hint); text-decoration: line-through; }
+  .people { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip { background: var(--bg2); border-radius: 999px; padding: 3px 10px; font-size: 13px; }
+  .chip.me { background: color-mix(in srgb, var(--btn) 18%, var(--bg2)); }
+</style>
+</head>
+<body data-tab="mine">
+
+<div id="v-loading" class="center">Loading…</div>
+<div id="v-error" class="center hidden"></div>
+
+<!-- ============ create ============ -->
+<form id="v-create" class="hidden" autocomplete="off">
+  <h1>New availability poll</h1>
+  <div class="hint">Pick the days and hours, then share it to a chat.</div>
+
+  <label class="field" for="f-title">Title</label>
+  <input id="f-title" type="text" maxlength="120" placeholder="e.g. Project meeting" required>
+
+  <label class="field">Dates</label>
+  <div class="seg" id="f-datemode">
+    <button type="button" data-mode="range" class="on">Date range</button>
+    <button type="button" data-mode="pick">Pick dates</button>
+  </div>
+  <div id="f-range" class="row" style="margin-top:10px">
+    <input id="f-from" type="date" aria-label="From">
+    <input id="f-to" type="date" aria-label="To">
+  </div>
+  <div id="f-pick" class="hidden" style="margin-top:10px">
+    <div class="cal">
+      <div class="cal-head">
+        <button type="button" id="cal-prev" aria-label="Previous month">‹</button>
+        <span id="cal-title"></span>
+        <button type="button" id="cal-next" aria-label="Next month">›</button>
+      </div>
+      <div class="cal-grid" id="cal-grid"></div>
+    </div>
+    <div class="hint" id="pick-count" style="margin-top:6px"></div>
+  </div>
+
+  <label class="field">Daily hours</label>
+  <div class="row">
+    <select id="f-start" aria-label="Start hour"></select>
+    <select id="f-end" aria-label="End hour"></select>
+  </div>
+  <div class="hint" style="margin-top:6px">Split into 30-minute slots.</div>
+
+  <label class="field" for="f-tz">Time zone</label>
+  <select id="f-tz"></select>
+
+  <button class="primary" id="f-submit" type="submit">Create &amp; share</button>
+  <div class="error" id="f-error"></div>
+</form>
+
+<!-- ============ event ============ -->
+<div id="v-event" class="hidden">
+  <h1 id="e-title"></h1>
+  <div class="hint" id="e-meta"></div>
+
+  <div class="seg tabs" id="e-tabs">
+    <button type="button" data-tab="mine" class="on">My availability</button>
+    <button type="button" data-tab="group">Group</button>
+  </div>
+
+  <div class="panes">
+    <section class="pane" id="pane-mine">
+      <h2>My availability</h2>
+      <div class="hint" style="margin-bottom:6px">Drag across the grid to mark when you're free. Drag again to unmark.</div>
+      <div class="scroller"><div class="grid" id="grid-mine"></div></div>
+      <div class="status" id="e-status"></div>
+    </section>
+    <section class="pane" id="pane-group">
+      <h2>Group</h2>
+      <div class="best" id="e-best"></div>
+      <div class="legend"><span id="lg-min">0</span><span class="ramp"></span><span id="lg-max">0</span><span>available</span></div>
+      <div class="scroller"><div class="grid" id="grid-group"></div></div>
+      <div class="detail hidden" id="e-detail"></div>
+      <div class="people" id="e-people"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+"use strict";
+const API_URL = "https://lldebkoxvxagdkunpqnx.supabase.co/functions/v1/sched-api";
+
+const tg = window.Telegram?.WebApp;
+const $ = (id) => document.getElementById(id);
+const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MO = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function show(id) {
+  for (const v of ["v-loading", "v-error", "v-create", "v-event"]) $(v).classList.toggle("hidden", v !== id);
+}
+function fail(msg) { $("v-error").textContent = msg; show("v-error"); }
+
+async function api(action, payload) {
+  const res = await fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, initData: tg?.initData ?? "", ...payload }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+// ---------- time helpers ----------
+const pad = (n) => String(n).padStart(2, "0");
+const isoOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const parseIso = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+function clock(mins) {
+  const h24 = Math.floor(mins / 60) % 24, m = mins % 60, h12 = h24 % 12 || 12;
+  return { text: m ? `${h12}:${pad(m)}` : `${h12}`, ampm: h24 < 12 ? "am" : "pm" };
+}
+const hourLabel = (h) => { const c = clock(h * 60); return c.text + c.ampm; };
+function timeRange(a, b) {
+  const x = clock(a), y = clock(b);
+  return x.ampm === y.ampm ? `${x.text}–${y.text}${y.ampm}` : `${x.text}${x.ampm}–${y.text}${y.ampm}`;
+}
+const dayLabel = (iso) => { const d = parseIso(iso); return `${WD[d.getDay()]} ${d.getDate()} ${MO[d.getMonth()]}`; };
+
+// =====================================================================
+// Create mode
+// =====================================================================
+const picked = new Set();
+let calMonth;
+
+function initCreate() {
+  show("v-create");
+  const today = new Date();
+  $("f-from").value = isoOf(today);
+  $("f-to").value = isoOf(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 6));
+  $("f-from").min = $("f-to").min = isoOf(today);
+
+  for (let h = 0; h <= 24; h++) {
+    if (h < 24) $("f-start").add(new Option(hourLabel(h), h, false, h === 9));
+    if (h > 0) $("f-end").add(new Option(h === 24 ? "12am (midnight)" : hourLabel(h), h, false, h === 18));
+  }
+
+  const zones = Intl.supportedValuesOf ? Intl.supportedValuesOf("timeZone") : ["Asia/Singapore", "UTC"];
+  if (!zones.includes("Asia/Singapore")) zones.unshift("Asia/Singapore");
+  for (const z of zones) $("f-tz").add(new Option(z.replace(/_/g, " "), z, false, z === "Asia/Singapore"));
+
+  $("f-datemode").addEventListener("click", (e) => {
+    const mode = e.target.dataset?.mode;
+    if (!mode) return;
+    for (const b of $("f-datemode").children) b.classList.toggle("on", b.dataset.mode === mode);
+    $("f-range").classList.toggle("hidden", mode !== "range");
+    $("f-pick").classList.toggle("hidden", mode !== "pick");
+  });
+
+  calMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  $("cal-prev").onclick = () => { calMonth.setMonth(calMonth.getMonth() - 1); renderCal(); };
+  $("cal-next").onclick = () => { calMonth.setMonth(calMonth.getMonth() + 1); renderCal(); };
+  renderCal();
+
+  $("v-create").addEventListener("submit", onCreate);
+}
+
+function renderCal() {
+  const grid = $("cal-grid"), todayIso = isoOf(new Date());
+  $("cal-title").textContent = `${MO[calMonth.getMonth()]} ${calMonth.getFullYear()}`;
+  grid.replaceChildren(...WD.map((w) => Object.assign(document.createElement("div"), { className: "dow", textContent: w[0] })));
+  for (let i = 0; i < calMonth.getDay(); i++) grid.append(document.createElement("div"));
+  const days = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 0).getDate();
+  for (let d = 1; d <= days; d++) {
+    const iso = isoOf(new Date(calMonth.getFullYear(), calMonth.getMonth(), d));
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = d;
+    b.classList.toggle("on", picked.has(iso));
+    b.classList.toggle("past", iso < todayIso);
+    b.onclick = () => {
+      picked.has(iso) ? picked.delete(iso) : picked.add(iso);
+      tg?.HapticFeedback?.selectionChanged();
+      renderCal();
+    };
+    grid.append(b);
+  }
+  $("pick-count").textContent = picked.size ? `${picked.size} date${picked.size > 1 ? "s" : ""} selected` : "Tap dates to select them.";
+}
+
+function collectDates() {
+  if (!$("f-pick").classList.contains("hidden")) return [...picked].sort();
+  const from = $("f-from").value, to = $("f-to").value;
+  if (!from || !to || to < from) return [];
+  const out = [];
+  for (let d = parseIso(from); isoOf(d) <= to && out.length <= 62; d.setDate(d.getDate() + 1)) out.push(isoOf(d));
+  return out;
+}
+
+function share(id) {
+  try {
+    if (!tg.isVersionAtLeast("6.7")) throw new Error("old client");
+    tg.switchInlineQuery(id, ["users", "groups", "supergroups"]);
+  } catch {
+    $("f-error").textContent = `Created! To share it, type the bot's @username followed by ${id} in any chat.`;
+  }
+}
+
+async function onCreate(e) {
+  e.preventDefault();
+  const err = $("f-error");
+  err.textContent = "";
+  const title = $("f-title").value.trim();
+  const dates = collectDates();
+  const startHour = Number($("f-start").value), endHour = Number($("f-end").value);
+  if (!title) return void (err.textContent = "Give the event a title.");
+  if (!dates.length) return void (err.textContent = "Choose at least one date.");
+  if (dates.length > 62) return void (err.textContent = "Keep it to 62 dates or fewer.");
+  if (endHour <= startHour) return void (err.textContent = "End hour must be after the start hour.");
+
+  const btn = $("f-submit");
+  btn.disabled = true;
+  btn.textContent = "Creating…";
+  try {
+    const { id } = await api("create", { title, dates, startHour, endHour, tz: $("f-tz").value });
+    tg?.HapticFeedback?.notificationOccurred("success");
+    share(id);
+    btn.textContent = "Share again";
+    btn.disabled = false;
+    btn.onclick = (ev) => { ev.preventDefault(); share(id); };
+  } catch (ex) {
+    err.textContent = ex.message;
+    btn.disabled = false;
+    btn.textContent = "Create & share";
+  }
+}
+
+// =====================================================================
+// Event mode: paint my availability + group heatmap
+// =====================================================================
+const S = { ev: null, me: null, mine: new Set(), responses: [], perDay: 0, dirty: false, saving: false };
+
+async function initEvent(id) {
+  try {
+    const data = await api("get", { id });
+    S.ev = data.event;
+    S.me = data.me;
+    S.perDay = ((S.ev.endHour - S.ev.startHour) * 60) / S.ev.slotMinutes;
+    S.responses = data.responses;
+    S.mine = new Set(data.responses.find((r) => r.userId === S.me)?.slots ?? []);
+  } catch (ex) {
+    return fail(ex.message);
+  }
+  show("v-event");
+  $("e-title").textContent = S.ev.title;
+  const viewerTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  $("e-meta").textContent = `Times in ${S.ev.tz.replace(/_/g, " ")}` +
+    (viewerTz && viewerTz !== S.ev.tz ? ` · you're in ${viewerTz.replace(/_/g, " ")}` : "");
+
+  $("e-tabs").addEventListener("click", (e) => {
+    const tab = e.target.dataset?.tab;
+    if (!tab) return;
+    document.body.dataset.tab = tab;
+    for (const b of $("e-tabs").children) b.classList.toggle("on", b.dataset.tab === tab);
+  });
+  buildGrid($("grid-mine"));
+  buildGrid($("grid-group"));
+  bindPaint();
+  bindGroupInspect();
+  renderMine();
+  renderGroup();
+
+  setInterval(refresh, 30000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+}
+
+function buildGrid(grid) {
+  const { dates, startHour } = S.ev;
+  grid.style.gridTemplateColumns = `auto repeat(${dates.length}, var(--col-w))`;
+  const frag = document.createDocumentFragment();
+  frag.append(Object.assign(document.createElement("div"), { className: "corner" }));
+  for (const iso of dates) {
+    const d = parseIso(iso), h = document.createElement("div");
+    h.className = "dayhead";
+    h.innerHTML = `<b>${WD[d.getDay()]}</b>${d.getDate()} ${MO[d.getMonth()]}`;
+    frag.append(h);
+  }
+  for (let s = 0; s < S.perDay; s++) {
+    const mins = startHour * 60 + s * S.ev.slotMinutes;
+    const t = document.createElement("div");
+    t.className = "time";
+    t.textContent = mins % 60 === 0 ? hourLabel(mins / 60) : "";
+    frag.append(t);
+    for (let d = 0; d < dates.length; d++) {
+      const c = document.createElement("div");
+      c.className = "cell";
+      if (mins % 60 === 0) c.classList.add("hour");
+      if (d === dates.length - 1) c.classList.add("lastcol");
+      if (s === S.perDay - 1) c.classList.add("lastrow");
+      c.dataset.d = d;
+      c.dataset.s = s;
+      frag.append(c);
+    }
+  }
+  grid.replaceChildren(frag);
+}
+
+const idx = (d, s) => d * S.perDay + s;
+const cellsOf = (grid) => grid.querySelectorAll(".cell");
+
+function renderMine() {
+  for (const c of cellsOf($("grid-mine"))) c.classList.toggle("on", S.mine.has(idx(+c.dataset.d, +c.dataset.s)));
+}
+
+// Responses as the group sees them, with my unsaved edits folded in.
+function groupResponses() {
+  const others = S.responses.filter((r) => r.userId !== S.me);
+  if (!S.mine.size) return others;
+  const meName = S.responses.find((r) => r.userId === S.me)?.name
+    ?? ([tg?.initDataUnsafe?.user?.first_name, tg?.initDataUnsafe?.user?.last_name].filter(Boolean).join(" ") || "You");
+  return [...others, { userId: S.me, name: meName, slots: [...S.mine] }];
+}
+
+function countsOf(resps) {
+  const counts = new Array(S.perDay * S.ev.dates.length).fill(0);
+  for (const r of resps) for (const s of r.slots) counts[s]++;
+  return counts;
+}
+
+function renderGroup() {
+  const resps = groupResponses();
+  const counts = countsOf(resps);
+  const n = resps.length;
+  for (const c of cellsOf($("grid-group"))) {
+    const k = counts[idx(+c.dataset.d, +c.dataset.s)];
+    c.style.background = k ? `rgba(var(--free), ${0.18 + 0.82 * (k / n)})` : "";
+  }
+  $("lg-min").textContent = "0";
+  $("lg-max").textContent = `${n}`;
+
+  const best = bestWindow(counts);
+  $("e-best").textContent = !n ? "No responses yet. Be the first."
+    : !best ? `${n} responded · no overlap yet`
+    : `${n} responded · best: ${dayLabel(S.ev.dates[best.day])}, ${timeRange(best.startMin, best.endMin)} ` +
+      `(${best.count === n ? "everyone" : `${best.count}/${n}`})`;
+
+  $("e-people").replaceChildren(...resps.map((r) =>
+    Object.assign(document.createElement("span"), {
+      className: "chip" + (r.userId === S.me ? " me" : ""),
+      textContent: r.userId === S.me ? `${r.name} (you)` : r.name,
+    })));
+  if (S.selected) showDetail(S.selected.d, S.selected.s);
+}
+
+function bestWindow(counts) {
+  const max = Math.max(0, ...counts);
+  if (!max) return null;
+  let best = { day: 0, from: 0, len: 0 };
+  for (let d = 0; d < S.ev.dates.length; d++) {
+    let run = 0;
+    for (let s = 0; s <= S.perDay; s++) {
+      if (s < S.perDay && counts[idx(d, s)] === max) run++;
+      else { if (run > best.len) best = { day: d, from: s - run, len: run }; run = 0; }
+    }
+  }
+  const startMin = S.ev.startHour * 60 + best.from * S.ev.slotMinutes;
+  return { ...best, count: max, startMin, endMin: startMin + best.len * S.ev.slotMinutes };
+}
+
+// ---------- painting (when2meet-style rectangle drag) ----------
+function bindPaint() {
+  const grid = $("grid-mine");
+  let drag = null;
+
+  const cellAt = (x, y) => document.elementFromPoint(x, y)?.closest?.("#grid-mine .cell");
+
+  function apply(to) {
+    const d0 = Math.min(drag.d, to.d), d1 = Math.max(drag.d, to.d);
+    const s0 = Math.min(drag.s, to.s), s1 = Math.max(drag.s, to.s);
+    S.mine = new Set(drag.snapshot);
+    for (let d = d0; d <= d1; d++) for (let s = s0; s <= s1; s++) {
+      drag.add ? S.mine.add(idx(d, s)) : S.mine.delete(idx(d, s));
+    }
+    renderMine();
+  }
+
+  grid.addEventListener("pointerdown", (e) => {
+    const c = e.target.closest(".cell");
+    if (!c || (e.pointerType === "mouse" && e.button !== 0)) return;
+    e.preventDefault();
+    const d = +c.dataset.d, s = +c.dataset.s;
+    drag = { d, s, last: `${d}:${s}`, add: !S.mine.has(idx(d, s)), snapshot: new Set(S.mine), id: e.pointerId };
+    apply({ d, s });
+    tg?.HapticFeedback?.selectionChanged();
+  });
+  window.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const c = cellAt(e.clientX, e.clientY);
+    if (!c) return;
+    const key = `${c.dataset.d}:${c.dataset.s}`;
+    if (key === drag.last) return;
+    drag.last = key;
+    apply({ d: +c.dataset.d, s: +c.dataset.s });
+  });
+  const end = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag = null;
+    markDirty();
+    renderGroup();
+  };
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+}
+
+// ---------- group inspector ----------
+function bindGroupInspect() {
+  const grid = $("grid-group");
+  const pick = (e) => {
+    const c = e.target.closest?.(".cell");
+    if (!c) return;
+    S.selected = { d: +c.dataset.d, s: +c.dataset.s };
+    for (const x of grid.querySelectorAll(".sel")) x.classList.remove("sel");
+    c.classList.add("sel");
+    showDetail(S.selected.d, S.selected.s);
+  };
+  grid.addEventListener("click", pick);
+  grid.addEventListener("pointerover", (e) => { if (e.pointerType === "mouse") pick(e); });
+}
+
+function showDetail(d, s) {
+  const resps = groupResponses();
+  const i = idx(d, s);
+  const yes = resps.filter((r) => r.slots.includes(i)), no = resps.filter((r) => !r.slots.includes(i));
+  const start = S.ev.startHour * 60 + s * S.ev.slotMinutes;
+  const box = $("e-detail");
+  box.classList.remove("hidden");
+  box.replaceChildren();
+  const head = document.createElement("div");
+  head.innerHTML = `<b></b> · ${yes.length}/${resps.length} available`;
+  head.querySelector("b").textContent = `${dayLabel(S.ev.dates[d])}, ${timeRange(start, start + S.ev.slotMinutes)}`;
+  const who = document.createElement("div");
+  who.className = "who";
+  for (const [list, cls] of [[yes, ""], [no, "no"]]) {
+    for (const r of list) {
+      const span = Object.assign(document.createElement("span"), { className: cls, textContent: r.name });
+      if (who.childNodes.length) who.append(", ");
+      who.append(span);
+    }
+  }
+  box.append(head);
+  if (resps.length) box.append(who);
+}
+
+// ---------- saving ----------
+let saveTimer = null;
+function setStatus(text, err = false) {
+  const el = $("e-status");
+  el.textContent = text;
+  el.classList.toggle("err", err);
+}
+
+function markDirty() {
+  S.dirty = true;
+  tg?.enableClosingConfirmation?.();
+  setStatus("Unsaved changes…");
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(save, 900);
+}
+
+async function save() {
+  if (S.saving) { saveTimer = setTimeout(save, 400); return; }
+  S.saving = true;
+  S.dirty = false;
+  const slots = [...S.mine];
+  setStatus("Saving…");
+  try {
+    const data = await api("save", { id: S.ev.id, slots });
+    S.responses = data.responses;
+    if (!S.dirty) {
+      tg?.disableClosingConfirmation?.();
+      setStatus(slots.length ? "Saved ✓ The group message is updated." : "Saved. You're marked as not responding.");
+    }
+    renderGroup();
+  } catch (ex) {
+    S.dirty = true;
+    setStatus(`Couldn't save: ${ex.message}. Tap to retry.`, true);
+    $("e-status").onclick = () => { $("e-status").onclick = null; save(); };
+  } finally {
+    S.saving = false;
+  }
+}
+
+async function refresh() {
+  if (S.dirty || S.saving || document.hidden) return;
+  try {
+    const data = await api("get", { id: S.ev.id });
+    S.responses = data.responses;
+    renderGroup();
+  } catch { /* keep the last good state */ }
+}
+
+// =====================================================================
+// boot
+// =====================================================================
+(function boot() {
+  if (!tg || !tg.initData) {
+    return fail("Open this from Telegram: type the bot's @username in any chat.");
+  }
+  tg.ready();
+  tg.expand();
+  tg.disableVerticalSwipes?.();
+  const startParam = tg.initDataUnsafe?.start_param;
+  if (startParam && /^[A-Za-z0-9]{10}$/.test(startParam)) initEvent(startParam);
+  else initCreate();
+})();
+</script>
+</body>
+</html>
