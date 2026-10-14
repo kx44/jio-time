@@ -1,4 +1,4 @@
-# Jio Time
+# Meeting Time (@MeetingTimingBot)
 
 A when2meet-style availability scheduler that runs as a Telegram Mini App.
 
