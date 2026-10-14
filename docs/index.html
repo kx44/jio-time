@@ -224,7 +224,7 @@
 
 <script>
 "use strict";
-const PAGE_VERSION = "5";
+const PAGE_VERSION = "6";
 const API_URL = "https://lldebkoxvxagdkunpqnx.supabase.co/functions/v1/sched-api";
 
 const tg = window.Telegram?.WebApp;
@@ -255,7 +255,9 @@ function fail(msg) { $("v-error").textContent = msg; show("v-error"); }
 async function api(action, payload, retries = 2) {
   const res = await fetch(API_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    // text/plain keeps this a "simple" request, so browsers skip the CORS preflight
+    // (halves function invocations). The API parses the body as JSON regardless.
+    headers: { "Content-Type": "text/plain;charset=UTF-8" },
     body: JSON.stringify({ action, initData: INIT_DATA, ...payload }),
   });
   const data = await res.json().catch(() => ({}));
@@ -456,7 +458,7 @@ async function initEvent(id) {
   renderMine();
   renderGroup();
 
-  setInterval(refresh, 30000);
+  setInterval(refresh, 75000); // refresh() skips while hidden or mid-edit
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 }
 

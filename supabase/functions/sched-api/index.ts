@@ -1,16 +1,20 @@
 // sched-api: create / get / save for the scheduler Mini App.
 // Requests carry Telegram initData, validated with the bot token (create may be anonymous).
 import {
-  db, displayName, getBotUsername, loadEvent, openButton, summaryHtml, tg, validateInitData,
+  BOT_TOKEN, db, displayName, getBotUsername, loadEvent, openButton, summaryHtml, tg, validateInitData,
 } from "../_shared/sched.ts";
 
+declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
+
 // Only the GitHub Pages Mini App may call this from a browser. (Doesn't stop scripts,
-// which is what initData validation and the limits below are for.)
+// which is what initData validation and the limits below are for.) The page sends
+// text/plain bodies so browsers skip the CORS preflight; Max-Age covers anything else.
 const CORS = {
   "Access-Control-Allow-Origin": "https://kx44.github.io",
   "Vary": "Origin",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "content-type, authorization, apikey, x-client-info",
+  "Access-Control-Max-Age": "86400",
 };
 
 const json = (body: unknown, status = 200) =>
@@ -19,7 +23,9 @@ const json = (body: unknown, status = 200) =>
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const EVENT_ID = /^[A-Za-z0-9]{10}$/;
 const MAX_BODY_BYTES = 16_384;
-const ANON_CREATES_PER_10_MIN = 20;
+const ANON_CREATES_PER_IP_PER_10_MIN = 10;
+const ANON_CREATES_GLOBAL_PER_10_MIN = 300; // safety net if IPs are spoofed or missing
+const EDIT_MIN_GAP_MS = 3000;
 const MIN_SAVE_INTERVAL_MS = 1000;
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -63,9 +69,9 @@ Deno.serve(async (req) => {
   if (body.id !== undefined && !EVENT_ID.test(String(body.id))) return json({ error: "Event not found" }, 404);
 
   try {
-    if (!user) return await create(null, body);
+    if (!user) return await create(null, body, req);
     switch (body.action) {
-      case "create": return await create(user, body);
+      case "create": return await create(user, body, req);
       case "get": return await get(user, body);
       case "save": return await save(user, body);
       default: return json({ error: "unknown action" }, 400);
@@ -76,7 +82,15 @@ Deno.serve(async (req) => {
   }
 });
 
-async function create(user: { id: number } | null, b: Record<string, any>) {
+// Salted hash so raw IP addresses are never stored.
+async function ipHash(req: Request) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || req.headers.get("x-real-ip") || "";
+  if (!ip) return null;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${BOT_TOKEN}|${ip}`));
+  return [...new Uint8Array(digest)].slice(0, 16).map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+async function create(user: { id: number } | null, b: Record<string, any>, req: Request) {
   const title = String(b.title ?? "").trim().slice(0, 120);
   const dates = [...new Set((Array.isArray(b.dates) ? b.dates : []).map(String))]
     .filter((d) => ISO_DATE.test(d) && !isNaN(Date.parse(d))).sort();
@@ -96,16 +110,27 @@ async function create(user: { id: number } | null, b: Record<string, any>) {
   }
   if (!validTz(tz)) return json({ error: "Unknown timezone" }, 400);
 
+  const ip = user ? null : await ipHash(req);
   if (!user) {
     const since = new Date(Date.now() - 10 * 60_000).toISOString();
-    const { count } = await db.from("sched_events").select("id", { count: "exact", head: true })
-      .is("creator_id", null).gte("created_at", since);
-    if ((count ?? 0) >= ANON_CREATES_PER_10_MIN) return json({ error: "Too many new events, try again shortly" }, 429);
+    const [perIp, global] = await Promise.all([
+      ip
+        ? db.from("sched_events").select("id", { count: "exact", head: true })
+          .eq("create_ip_hash", ip).gte("created_at", since)
+        : Promise.resolve({ count: 0 }),
+      db.from("sched_events").select("id", { count: "exact", head: true })
+        .is("creator_id", null).gte("created_at", since),
+    ]);
+    if ((perIp.count ?? 0) >= ANON_CREATES_PER_IP_PER_10_MIN ||
+        (global.count ?? 0) >= ANON_CREATES_GLOBAL_PER_10_MIN) {
+      return json({ error: "Too many new events, try again in a few minutes" }, 429);
+    }
   }
 
   const id = newId();
   const { error } = await db.from("sched_events").insert({
-    id, title, dates, start_hour: startHour, end_hour: endHour, slot_minutes: 30, tz, creator_id: user?.id ?? null,
+    id, title, dates, start_hour: startHour, end_hour: endHour, slot_minutes: 30, tz,
+    creator_id: user?.id ?? null, create_ip_hash: ip,
   });
   if (error) throw error;
   return json({ id, botUsername: await getBotUsername() });
@@ -150,11 +175,27 @@ async function save(user: Parameters<typeof displayName>[0], b: Record<string, a
   if (error) throw error;
 
   const loaded = (await loadEvent(id))!;
-  await refreshMessages(loaded.ev, loaded.responses);
+  await scheduleMessageRefresh(loaded.ev);
   return json({
     ok: true,
     responses: loaded.responses.map((r) => ({ userId: r.user_id, name: r.name, slots: r.slots })),
   });
+}
+
+// Coalesce edits so a burst of saves makes at most one Telegram edit per event every
+// EDIT_MIN_GAP_MS (Telegram rate-limits edits in busy groups). The edit runs after the
+// response is sent and reads the latest data when it fires, so the last save always shows.
+async function scheduleMessageRefresh(ev: Parameters<typeof summaryHtml>[0]) {
+  if (!ev.inline_message_ids.length) return;
+  const { data: delayMs, error } = await db.rpc("sched_claim_edit", { p_event_id: ev.id, p_min_gap_ms: EDIT_MIN_GAP_MS });
+  if (error) console.error("claim edit", error);
+  if (delayMs === null || delayMs === undefined) return; // an edit is already scheduled
+  EdgeRuntime.waitUntil((async () => {
+    if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+    await db.rpc("sched_start_edit", { p_event_id: ev.id });
+    const fresh = await loadEvent(ev.id);
+    if (fresh) await refreshMessages(fresh.ev, fresh.responses);
+  })().catch((e) => console.error("refresh messages", e)));
 }
 
 // Edit every shared copy of the event message. Edits never notify.
