@@ -198,6 +198,7 @@
 
 <script>
 "use strict";
+const PAGE_VERSION = "3";
 const API_URL = "https://lldebkoxvxagdkunpqnx.supabase.co/functions/v1/sched-api";
 
 const tg = window.Telegram?.WebApp;
@@ -634,7 +635,7 @@ async function refresh() {
   if (!INIT_DATA && (!tg || startParam)) {
     const hashKeys = [...new URLSearchParams(location.hash.slice(1)).keys()].join(", ") || "none";
     return fail("Telegram didn't pass launch data to this page. Open it from the bot's inline button or a shared event link. " +
-      `Debug: sdk=${tg ? "yes" : "no"} · platform=${tg?.platform ?? "?"} · version=${tg?.version ?? "?"} · hash keys: ${hashKeys}`);
+      `Debug: page=v${PAGE_VERSION} · sdk=${tg ? "yes" : "no"} · platform=${tg?.platform ?? "?"} · version=${tg?.version ?? "?"} · hash keys: ${hashKeys}`);
   }
   tg?.ready();
   tg?.expand();

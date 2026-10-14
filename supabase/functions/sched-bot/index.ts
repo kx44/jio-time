@@ -9,7 +9,10 @@ import {
 const WEBHOOK_SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
 const EVENT_ID = /^[A-Za-z0-9]{10}$/;
 
-const createButton = { text: "➕ Create a new event", web_app: { url: MINI_APP_URL } };
+// Bump when docs/index.html changes so Telegram's webview doesn't serve a stale cached page.
+const PAGE_VERSION = "3";
+const pageUrl = MINI_APP_URL ? `${MINI_APP_URL}${MINI_APP_URL.includes("?") ? "&" : "?"}v=${PAGE_VERSION}` : "";
+const createButton = { text: "➕ Create a new event", web_app: { url: pageUrl } };
 
 async function onInlineQuery(q: { id: string; query: string }) {
   const id = q.query.trim();
